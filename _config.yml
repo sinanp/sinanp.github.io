@@ -1,0 +1,15 @@
+# Site settings
+title: "Sina Network Platform Team's blog"
+username: "sinanp"
+email: "np@staff.sina.com.cn"
+url: "http://sinanp.github.io"
+baseurl: "http://sinanp.github.io"
+#url: "http://127.0.0.1:4000"
+#baseurl: ""
+
+# Build settings
+# markdown: kramdown
+markdown: redcarpet
+pygments: true
+# highlighter: pygments
+permalink: pretty
