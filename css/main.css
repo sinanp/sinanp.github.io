@@ -255,6 +255,12 @@ a:visited { color: #205caa; }
 
 .post pre.terminal code { background-color: #333; }
 
+/* image */
+.center-image {
+    margin: 0 auto;
+    display: block;
+}
+
 /* Syntax highlighting styles */
 /* ----------------------------------------------------------*/
 
@@ -401,5 +407,6 @@ a:visited { color: #205caa; }
     clear: both;
     width: auto;
     margin: 0 0 15px; }
+
 
 }
