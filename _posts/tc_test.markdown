@@ -1,3 +1,9 @@
+---
+layout: post
+title:  "Openstack RPC"
+date:   2015-03-16 12:08:57
+categories: openstack
+---
 # Linux tc 性能测试报告 #
 	
 ## 目的 ##
