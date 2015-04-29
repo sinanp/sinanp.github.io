@@ -1,0 +1,112 @@
+---
+layout: post
+title:  "Neutron rest api"
+date:   2015-03-16 12:08:57
+categories: openstack
+---
+
+###Neutron rest api
+
+
+{% highlight python linenos %}
+"""neutron/server/__init__.py"""
+def main():
+	...
+	neutron_api = service.serve_wsgi(service.NeutronApiService)
+	api_thread = pool.spawn(neutron_api.wait)
+	...
+{% endhighlight %}
+
+neutron-server通过serve_wsgi启动一个web server用来处理client的请求.NeutronApiService类继承自WsgiService.
+{% highlight python linenos %}
+def serve_wsgi(cls):
+
+    try:
+        service = cls.create()
+        service.start()
+    except Exception:
+        with excutils.save_and_reraise_exception():
+        LOG.exception(_('Unrecoverable error: please check log '
+	                    'for details.'))
+	return service
+{% endhighlight %}
+在run_wsgi中调用了NeutronApiService中的create方法,并返回一个api service的instance,随后调用start启动service,
+该start方法继承自WsgiService中,只有一行代码`self.wsgi_app = _run_wsgi(self.app_name)`.在_run_wsgi中通过
+`app = config.load_paste_app(app_name)`来load配置中的app,配置文件为`/etc/neutron/api-paste.ini`.在load的过程
+中就会初始化配置中得类.
+在api-paste.ini中`paste.app_factory = neutron.api.v2.router:APIRouter.factory`,指出APIRouter作为启动router:
+
+{% highlight python linenos %}
+"""neutron/api/v2/router.py"""
+class APIRouter(wsgi.Router):
+
+    @classmethod
+    def factory(cls, global_config, **local_config):
+        return cls(**local_config)
+
+    def __init__(self, **local_config):
+        mapper = routes_mapper.Mapper()
+        #plugin是/etc/neutron/neutron.conf中配置的core_plugin = ml2
+        plugin = manager.NeutronManager.get_plugin()
+        #ext_mgr加载了指定路径下的plugin,也就是那些扩展的plugin,
+        #在/usr/local/lib/python2.7/dist-packages/neutron/extensions
+        ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
+        #extend_resources会拓展已经在PluginAwareExtensionManager初始化时已经
+        #add的extensions的attr map和resources
+        ext_mgr.extend_resources("2.0", attributes.RESOURCE_ATTRIBUTE_MAP)
+
+        col_kwargs = dict(collection_actions=COLLECTION_ACTIONS,
+                          member_actions=MEMBER_ACTIONS)
+        #将url和controller建立map,并添加到router中,当request到来就能通过
+        #router解析直接给出对应controller
+        def _map_resource(collection, resource, params, parent=None):
+            allow_bulk = cfg.CONF.allow_bulk
+            allow_pagination = cfg.CONF.allow_pagination
+            allow_sorting = cfg.CONF.allow_sorting
+            controller = base.create_resource(
+                collection, resource, plugin, params, allow_bulk=allow_bulk,
+                parent=parent, allow_pagination=allow_pagination,
+                allow_sorting=allow_sorting)
+            path_prefix = None
+            if parent:
+                path_prefix = "/%s/{\%s_id}/%s" % (parent['collection_name'],
+                                                  parent['member_name'],
+                                                  collection)
+            mapper_kwargs = dict(controller=controller,
+                                 requirements=REQUIREMENTS,
+                                 path_prefix=path_prefix,
+                                 **col_kwargs)
+            return mapper.collection(collection, resource,
+                                     **mapper_kwargs)
+
+        mapper.connect('index', '/', controller=Index(RESOURCES))
+        #遍历{'network': 'networks', 'subnet': 'subnets','port': 'ports'}
+        #添加controller
+        for resource in RESOURCES:
+            _map_resource(RESOURCES[resource], resource,
+                          attributes.RESOURCE_ATTRIBUTE_MAP.get(
+                              RESOURCES[resource], dict()))
+        #SUB_RESOURCES为空
+        for resource in SUB_RESOURCES:
+            _map_resource(SUB_RESOURCES[resource]['collection_name'], resource,
+                          attributes.RESOURCE_ATTRIBUTE_MAP.get(
+                              SUB_RESOURCES[resource]['collection_name'],
+                              dict()),
+                          SUB_RESOURCES[resource]['parent'])
+
+        super(APIRouter, self).__init__(mapper)
+
+{% endhighlight %}
+
+如上注释所示,APIRouter在初始化的时候主要功能是添加了扩展plugin,同时建立了url和controller的mapper,并加入router中
+.当request到来,router可以根据url的信息会根据mapper的影射将请求交由指定的controller处理.同时在初始化的时候会根据
+配置加载core plugin,以及根据指定路径通过PluginAwareExtensionManager的初始化加载extention plugin.每个extention plugin
+的attr_map会在extend_resources中进行扩充,如果该plugin需要的话.
+对于controller,实现了COLLECTION_ACTIONS和MEMBER_ACTIONS中注册的方法,也就是'index', 'create','show', 'update', 'delete'
+这几个方法,用于处理对应的request.对于controller,接到request之后会根据相应的信息决定具体需要那个方法来执行,比如在update
+中会通过`obj_updater = getattr(self._plugin, action)`来拿到具体是floatingip_update还是router_update然后在下面会执行
+`obj = obj_updater(request.context, id, **kwargs)`来具体执行该函数.
+
+###参考网站
+
+[1] <http://www.lnmpy.com/neutron-server-how-to-start/>
